@@ -14,6 +14,10 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
+app.get("/test", (req, res) => {
+  res.json({ message: "CORS is working!" });
+});
+
 app.get("/qr", async (req, res) => {
   try {
     const { text, color, bg } = req.query;
