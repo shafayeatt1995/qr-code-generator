@@ -72,7 +72,9 @@ app.get("/result", async (req, res) => {
 
     suggestions = suggestions.slice(0, output);
 
-    return res.json({ suggestions });
+    const meta = { keyword: q, country: gl, language: hl, client };
+
+    return res.json({ suggestions, meta });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message });
