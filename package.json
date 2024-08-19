@@ -4,13 +4,15 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "start": "node --watch app.js"
+    "dev": "node --watch app.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.3",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "suggestion": "^2.1.2"
   }
 }
