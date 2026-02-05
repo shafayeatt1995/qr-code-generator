@@ -160,7 +160,6 @@
         const bg = document.getElementById("bg").value.substring(1);
         const text = document.getElementById("text").value;
         const url = `/qr?color=${color}&bg=${bg}&text=${text}`;
-
         fetch(url)
           .then((response) => response.blob())
           .then((blob) => {
