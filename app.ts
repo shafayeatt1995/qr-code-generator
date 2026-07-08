@@ -1,18 +1,19 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import type { ServerResponse } from "http";
 import type { ParsedQs } from "qs";
 import qr from "qrcode";
 import sharp from "sharp";
-import suggest from "suggestion";
 import cors from "cors";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const isDev = process.env.NODE_ENV === "development";
-const indexPath = path.join(import.meta.dirname, "index.html");
-const logoPath = path.join(import.meta.dirname, "public", "logo.avif");
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const indexPath = path.join(rootDir, "index.html");
+const logoPath = path.join(rootDir, "public", "logo.avif");
 const defaultPreviewSize = 800;
 const minQrSize = 100;
 const maxQrSize = 4096;
@@ -39,7 +40,7 @@ if (isDev) {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(import.meta.dirname, "public")));
+app.use(express.static(path.join(rootDir, "public")));
 
 function getQueryParam(
   value: string | ParsedQs | (string | ParsedQs)[] | undefined,
@@ -201,61 +202,21 @@ app.get("/qr", async (req, res) => {
   }
 });
 
-app.get("/result", async (req, res) => {
-  try {
-    const q = getQueryParam(req.query.q);
-    const gl = getQueryParam(req.query.gl);
-    const hl = getQueryParam(req.query.hl);
-    const client = getQueryParam(req.query.client);
-    const output = Number(getQueryParam(req.query.output) ?? "0");
+export default app;
 
-    if (!q) {
-      return res.status(400).json({ message: "Missing required parameter: q" });
+if (import.meta.main) {
+  const server = app.listen(port, () => {
+    console.log(`Server is running at http://localhost:${port}`);
+  });
+
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(
+        `Port ${port} is already in use. Stop the other process or run with PORT=3001 bun run dev`,
+      );
+      process.exit(1);
     }
 
-    const options: {
-      q: string;
-      gl?: string;
-      hl?: string;
-      levels: number;
-      client?: string;
-    } = { q, gl, hl, levels: 1 };
-
-    if (client === "youtube") {
-      options.client = "youtube";
-    }
-
-    let suggestions = await new Promise<string[]>((resolve, reject) => {
-      suggest(q, options, (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
-      });
-    });
-
-    suggestions = suggestions.slice(0, output);
-
-    const meta = { keyword: q, country: gl, language: hl, client };
-
-    return res.json({ suggestions, meta });
-  } catch (error) {
-    console.error(error);
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return res.status(500).json({ message });
-  }
-});
-
-const server = app.listen(port, () => {
-  console.log(`Server is running at http://localhost:${port}`);
-});
-
-server.on("error", (error: NodeJS.ErrnoException) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(
-      `Port ${port} is already in use. Stop the other process or run with PORT=3001 bun run dev`,
-    );
-    process.exit(1);
-  }
-
-  throw error;
-});
+    throw error;
+  });
+}
