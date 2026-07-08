@@ -39,6 +39,15 @@
         margin-bottom: 30px;
       }
 
+      .brand-logo {
+        display: block;
+        width: auto;
+        height: 60px;
+        margin: 0 auto 16px;
+        border: none;
+        object-fit: contain;
+      }
+
       .qr-settings-wrapper {
         display: flex;
         margin-left: -10px;
@@ -90,17 +99,128 @@
       }
 
       div#display-qr pre {
-        max-width: 100%;
-        overflow: scroll;
+        flex: 1;
+        min-width: 0;
+        overflow: auto;
         background-color: #f1efef;
-        padding: 10px;
+        padding: 10px 14px 10px 10px;
         font-size: 14px;
+        margin: 0;
+      }
+
+      .api-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .api-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .icon-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        width: 42px;
+        height: 42px;
+        color: #fff;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+
+      .icon-btn::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #2f3b52;
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+          opacity 0.15s ease,
+          visibility 0.15s ease;
+      }
+
+      .icon-btn:hover::after,
+      .icon-btn:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      #copy-btn {
+        background-color: #0c8ce9;
+      }
+
+      #download-btn {
+        background-color: #f45315;
+      }
+
+      .icon-btn svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+      }
+
+      #toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .toast {
+        min-width: 220px;
+        max-width: 320px;
+        padding: 12px 16px;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+        line-height: 1.4;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        opacity: 0;
+        transform: translateX(16px);
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateX(0);
+      }
+
+      .toast.success {
+        background-color: #1f9d55;
+      }
+
+      .toast.error {
+        background-color: #d64545;
       }
     </style>
   </head>
   <body>
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
     <div class="wrapper">
-      <h2>Generate QR code</h2>
+      <img src="/logo.avif" alt="Logo" class="brand-logo" />
+      <h2>Xorin Lab - QR code generator</h2>
       <form action="/qr">
         <div class="qr-settings-wrapper">
           <div class="qr-setting">
@@ -141,9 +261,61 @@
       <div id="display-qr">
         <div style="display: none" class="loading-text">Loading ...</div>
         <img src="" alt="" id="qr-image" style="display: none" />
-
         <p>API URL</p>
-        <pre></pre>
+        <div class="api-row">
+          <pre></pre>
+          <div class="api-actions">
+            <button
+              type="button"
+              id="copy-btn"
+              class="icon-btn"
+              aria-label="Copy API URL"
+              data-tooltip="Copy API URL"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect
+                  width="14"
+                  height="14"
+                  x="8"
+                  y="8"
+                  rx="2"
+                  ry="2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              id="download-btn"
+              class="icon-btn"
+              aria-label="Download QR Code"
+              data-tooltip="Download QR Code"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -152,14 +324,49 @@
       const qrImage = document.getElementById("qr-image");
       const displayQr = document.getElementById("display-qr");
       const loadingText = document.querySelector(".loading-text");
+      const apiUrlPre = displayQr.querySelector("pre");
+      const copyBtn = document.getElementById("copy-btn");
+      const downloadBtn = document.getElementById("download-btn");
+      const toastContainer = document.getElementById("toast-container");
+      const downloadSize = 1000;
+
+      function showToast(message, type = "success") {
+        const toast = document.createElement("div");
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+
+        requestAnimationFrame(() => {
+          toast.classList.add("show");
+        });
+
+        setTimeout(() => {
+          toast.classList.remove("show");
+          setTimeout(() => toast.remove(), 200);
+        }, 2500);
+      }
+
+      function buildQrUrl({ size, download = false } = {}) {
+        const color = document.getElementById("color").value.substring(1);
+        const bg = document.getElementById("bg").value.substring(1);
+        const text = document.getElementById("text").value;
+        const params = new URLSearchParams({ color, bg, text });
+
+        if (size) {
+          params.set("size", String(size));
+        }
+
+        if (download) {
+          params.set("download", "1");
+        }
+
+        return `/qr?${params.toString()}`;
+      }
 
       form.addEventListener("submit", function (e) {
         e.preventDefault();
 
-        const color = document.getElementById("color").value.substring(1);
-        const bg = document.getElementById("bg").value.substring(1);
-        const text = document.getElementById("text").value;
-        const url = `/qr?color=${color}&bg=${bg}&text=${text}`;
+        const url = buildQrUrl();
         fetch(url)
           .then((response) => response.blob())
           .then((blob) => {
@@ -171,8 +378,44 @@
           });
       });
 
+      copyBtn.addEventListener("click", async function () {
+        const apiUrl = apiUrlPre.innerText.trim();
+        if (!apiUrl) return;
+
+        try {
+          await navigator.clipboard.writeText(apiUrl);
+          showToast("API URL copied to clipboard");
+        } catch (error) {
+          console.error(error);
+          showToast("Could not copy API URL", "error");
+        }
+      });
+
+      downloadBtn.addEventListener("click", async function () {
+        const url = buildQrUrl({ size: downloadSize, download: true });
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error("Failed to generate QR code");
+          }
+
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = `qr-code-${downloadSize}px.png`;
+          link.click();
+          URL.revokeObjectURL(objectUrl);
+          showToast("QR code downloaded");
+        } catch (error) {
+          console.error(error);
+          showToast("Could not download QR code", "error");
+        }
+      });
+
       // click pre to select all
-      displayQr.querySelector("pre").addEventListener("click", function () {
+      apiUrlPre.addEventListener("click", function () {
         const selection = window.getSelection();
         const range = document.createRange();
         range.selectNodeContents(this);

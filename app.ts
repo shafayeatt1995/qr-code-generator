@@ -1,0 +1,261 @@
+import express from "express";
+import fs from "fs";
+import path from "path";
+import type { ServerResponse } from "http";
+import type { ParsedQs } from "qs";
+import qr from "qrcode";
+import sharp from "sharp";
+import suggest from "suggestion";
+import cors from "cors";
+
+const app = express();
+const port = Number(process.env.PORT) || 3000;
+const isDev = process.env.NODE_ENV === "development";
+const indexPath = path.join(import.meta.dirname, "index.html");
+const logoPath = path.join(import.meta.dirname, "public", "logo.avif");
+const defaultPreviewSize = 800;
+const minQrSize = 100;
+const maxQrSize = 4096;
+let livereloadClients: ServerResponse[] = [];
+
+if (isDev) {
+  app.get("/__livereload", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    livereloadClients.push(res);
+    req.on("close", () => {
+      livereloadClients = livereloadClients.filter((client) => client !== res);
+    });
+  });
+
+  fs.watch(indexPath, () => {
+    livereloadClients.forEach((client) => client.write("data: reload\n\n"));
+  });
+}
+
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(import.meta.dirname, "public")));
+
+function getQueryParam(
+  value: string | ParsedQs | (string | ParsedQs)[] | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const val = Array.isArray(value) ? value[0] : value;
+  return typeof val === "string" ? val : undefined;
+}
+
+function normalizeHexColor(color: string): string {
+  return color.startsWith("#") ? color : `#${color}`;
+}
+
+function hexToRgb(hex: string) {
+  const value = hex.replace("#", "");
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+async function logoForPlate(
+  plateColor: { r: number; g: number; b: number },
+  logoSize: number,
+): Promise<Buffer> {
+  const { data, info } = await sharp(logoPath)
+    .resize(logoSize, logoSize, {
+      fit: "contain",
+      background: { ...plateColor, alpha: 1 },
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const threshold = 235;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    if (r >= threshold && g >= threshold && b >= threshold) {
+      data[i] = plateColor.r;
+      data[i + 1] = plateColor.g;
+      data[i + 2] = plateColor.b;
+      data[i + 3] = 255;
+    }
+  }
+
+  return sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: info.channels,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+function parseQrSize(value: string | undefined, fallback: number): number {
+  const size = Number(value);
+  if (!Number.isFinite(size)) return fallback;
+  return Math.min(maxQrSize, Math.max(minQrSize, Math.round(size)));
+}
+
+async function generateQrWithLogo(
+  text: string,
+  darkColor: string,
+  lightColor: string,
+  size: number,
+): Promise<Buffer> {
+  const qrBuffer = await qr.toBuffer(text, {
+    margin: 1,
+    width: size,
+    errorCorrectionLevel: "H",
+    color: {
+      dark: normalizeHexColor(darkColor),
+      light: normalizeHexColor(lightColor),
+    },
+  });
+
+  const logoSize = Math.round(size * 0.2);
+  const padding = 12;
+  const plateColor = hexToRgb(normalizeHexColor(lightColor));
+
+  const logo = await logoForPlate(plateColor, logoSize);
+
+  const logoPlate = await sharp({
+    create: {
+      width: logoSize + padding * 2,
+      height: logoSize + padding * 2,
+      channels: 4,
+      background: { ...plateColor, alpha: 1 },
+    },
+  })
+    .composite([{ input: logo, gravity: "center" }])
+    .png()
+    .toBuffer();
+
+  return sharp(qrBuffer)
+    .composite([{ input: logoPlate, gravity: "center" }])
+    .png()
+    .toBuffer();
+}
+
+app.get("/", (_req, res) => {
+  if (isDev) {
+    const html = fs.readFileSync(indexPath, "utf8");
+    const reloadScript =
+      '<script>new EventSource("/__livereload").onmessage=()=>location.reload();</script>';
+    return res.send(html.replace("</body>", `${reloadScript}</body>`));
+  }
+
+  res.sendFile(indexPath);
+});
+
+app.get("/test", (_req, res) => {
+  res.json({ message: "CORS is working!" });
+});
+
+app.get("/qr", async (req, res) => {
+  try {
+    const text = getQueryParam(req.query.text);
+    const color = getQueryParam(req.query.color);
+    const bg = getQueryParam(req.query.bg);
+    const size = parseQrSize(
+      getQueryParam(req.query.size),
+      defaultPreviewSize,
+    );
+    const download = getQueryParam(req.query.download) === "1";
+
+    if (!text) {
+      return res.status(400).send("Missing required parameters");
+    }
+
+    const defaultColor = "#000000";
+    const defaultBgColor = "#FFFFFF";
+    const darkColor = color || defaultColor;
+    const lightColor = bg || defaultBgColor;
+    const qrImage = await generateQrWithLogo(
+      text,
+      darkColor,
+      lightColor,
+      size,
+    );
+
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Disposition": download
+        ? `attachment; filename=qr-code-${size}px.png`
+        : "inline; filename=qr-code.png",
+    });
+
+    res.end(qrImage);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Error generating QR code");
+  }
+});
+
+app.get("/result", async (req, res) => {
+  try {
+    const q = getQueryParam(req.query.q);
+    const gl = getQueryParam(req.query.gl);
+    const hl = getQueryParam(req.query.hl);
+    const client = getQueryParam(req.query.client);
+    const output = Number(getQueryParam(req.query.output) ?? "0");
+
+    if (!q) {
+      return res.status(400).json({ message: "Missing required parameter: q" });
+    }
+
+    const options: {
+      q: string;
+      gl?: string;
+      hl?: string;
+      levels: number;
+      client?: string;
+    } = { q, gl, hl, levels: 1 };
+
+    if (client === "youtube") {
+      options.client = "youtube";
+    }
+
+    let suggestions = await new Promise<string[]>((resolve, reject) => {
+      suggest(q, options, (err, results) => {
+        if (err) reject(err);
+        else resolve(results);
+      });
+    });
+
+    suggestions = suggestions.slice(0, output);
+
+    const meta = { keyword: q, country: gl, language: hl, client };
+
+    return res.json({ suggestions, meta });
+  } catch (error) {
+    console.error(error);
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
+    return res.status(500).json({ message });
+  }
+});
+
+const server = app.listen(port, () => {
+  console.log(`Server is running at http://localhost:${port}`);
+});
+
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(
+      `Port ${port} is already in use. Stop the other process or run with PORT=3001 bun run dev`,
+    );
+    process.exit(1);
+  }
+
+  throw error;
+});
