@@ -1,0 +1,17 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "includeFiles": "public/**"
+    }
+  }
+}

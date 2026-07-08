@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "NODE_ENV=development bun --watch app.ts",
     "build": "tsc",
-    "start": "node dist/api/index.js"
+    "start": "node dist/api/index.js",
+    "vercel-build": "echo \"Vercel uses api/index.ts directly\""
   },
   "keywords": [],
   "author": "",
