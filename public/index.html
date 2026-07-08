@@ -39,11 +39,17 @@
         margin-bottom: 30px;
       }
 
+      .brand-logo-link {
+        display: block;
+        width: fit-content;
+        margin: 0 auto 16px;
+      }
+
       .brand-logo {
         display: block;
         width: auto;
         height: 60px;
-        margin: 0 auto 16px;
+        margin: 0;
         border: none;
         object-fit: contain;
       }
@@ -219,7 +225,14 @@
   <body>
     <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
     <div class="wrapper">
-      <img src="/logo.avif" alt="Logo" class="brand-logo" />
+      <a
+        href="https://xorinlab.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="brand-logo-link"
+      >
+        <img src="/logo.avif" alt="Logo" class="brand-logo" />
+      </a>
       <h2>Xorin Lab - QR code generator</h2>
       <form action="/api/qr">
         <div class="qr-settings-wrapper">
