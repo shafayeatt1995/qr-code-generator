@@ -226,7 +226,7 @@ router.get("/qr", async (req, res) => {
     res.writeHead(200, {
       "Content-Type": "image/png",
       "Content-Disposition": download
-        ? `attachment; filename=qr-code-${size}px.png`
+        ? 'attachment; filename="Xorin Lab QR Code.png"'
         : "inline; filename=qr-code.png",
     });
 

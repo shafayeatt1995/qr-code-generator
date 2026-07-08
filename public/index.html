@@ -404,7 +404,7 @@
           const objectUrl = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = objectUrl;
-          link.download = `qr-code-${downloadSize}px.png`;
+          link.download = "Xorin Lab QR Code.png";
           link.click();
           URL.revokeObjectURL(objectUrl);
           showToast("QR code downloaded");
