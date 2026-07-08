@@ -11,7 +11,9 @@ import cors from "cors";
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const isDev = process.env.NODE_ENV === "development";
-const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = process.env.VERCEL
+  ? process.cwd()
+  : path.dirname(fileURLToPath(import.meta.url));
 const indexPath = path.join(rootDir, "index.html");
 const logoPath = path.join(rootDir, "public", "logo.avif");
 const defaultPreviewSize = 800;
@@ -204,7 +206,7 @@ app.get("/qr", async (req, res) => {
 
 export default app;
 
-if (import.meta.main) {
+if (!process.env.VERCEL && import.meta.main) {
   const server = app.listen(port, () => {
     console.log(`Server is running at http://localhost:${port}`);
   });

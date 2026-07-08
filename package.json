@@ -5,7 +5,8 @@
   "main": "app.ts",
   "scripts": {
     "dev": "NODE_ENV=development bun --watch app.ts",
-    "start": "bun app.ts"
+    "start": "bun app.ts",
+    "build": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
