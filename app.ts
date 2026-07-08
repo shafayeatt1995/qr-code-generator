@@ -11,24 +11,58 @@ import cors from "cors";
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const isDev = process.env.NODE_ENV === "development";
-const rootDir = process.env.VERCEL
-  ? process.cwd()
-  : path.dirname(fileURLToPath(import.meta.url));
+
+function getProjectRoot(): string {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+  if (process.env.VERCEL || path.basename(moduleDir) === "dist") {
+    return process.cwd();
+  }
+
+  return moduleDir;
+}
+
+const rootDir = getProjectRoot();
 const indexPath = path.join(rootDir, "public", "index.html");
 const logoPath = path.join(rootDir, "public", "logo.avif");
 const defaultPreviewSize = 800;
 const minQrSize = 100;
 const maxQrSize = 4096;
 let livereloadClients: ServerResponse[] = [];
+let cachedLogo: Buffer | null = null;
 
-if (isDev) {
-  app.get("/", (_req, res) => {
+async function getLogoImage(): Promise<Buffer> {
+  if (cachedLogo) return cachedLogo;
+
+  if (fs.existsSync(logoPath)) {
+    cachedLogo = fs.readFileSync(logoPath);
+    return cachedLogo;
+  }
+
+  if (process.env.VERCEL_URL) {
+    const response = await fetch(`https://${process.env.VERCEL_URL}/logo.avif`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch logo: ${response.status}`);
+    }
+    cachedLogo = Buffer.from(await response.arrayBuffer());
+    return cachedLogo;
+  }
+
+  throw new Error(`Logo not found at ${logoPath}`);
+}
+
+app.get("/", (_req, res) => {
+  if (isDev) {
     const html = fs.readFileSync(indexPath, "utf8");
     const reloadScript =
       '<script>new EventSource("/__livereload").onmessage=()=>location.reload();</script>';
     return res.send(html.replace("</body>", `${reloadScript}</body>`));
-  });
+  }
 
+  res.sendFile(indexPath);
+});
+
+if (isDev) {
   app.get("/__livereload", (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -76,7 +110,8 @@ async function logoForPlate(
   plateColor: { r: number; g: number; b: number },
   logoSize: number,
 ): Promise<Buffer> {
-  const { data, info } = await sharp(logoPath)
+  const logoImage = await getLogoImage();
+  const { data, info } = await sharp(logoImage)
     .resize(logoSize, logoSize, {
       fit: "contain",
       background: { ...plateColor, alpha: 1 },
