@@ -221,7 +221,7 @@
     <div class="wrapper">
       <img src="/logo.avif" alt="Logo" class="brand-logo" />
       <h2>Xorin Lab - QR code generator</h2>
-      <form action="/qr">
+      <form action="/api/qr">
         <div class="qr-settings-wrapper">
           <div class="qr-setting">
             <label for="color">Color</label>
@@ -360,7 +360,7 @@
           params.set("download", "1");
         }
 
-        return `/qr?${params.toString()}`;
+        return `/api/qr?${params.toString()}`;
       }
 
       form.addEventListener("submit", function (e) {

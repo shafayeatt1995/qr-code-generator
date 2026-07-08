@@ -14,7 +14,7 @@ const isDev = process.env.NODE_ENV === "development";
 const rootDir = process.env.VERCEL
   ? process.cwd()
   : path.dirname(fileURLToPath(import.meta.url));
-const indexPath = path.join(rootDir, "index.html");
+const indexPath = path.join(rootDir, "public", "index.html");
 const logoPath = path.join(rootDir, "public", "logo.avif");
 const defaultPreviewSize = 800;
 const minQrSize = 100;
@@ -22,6 +22,13 @@ const maxQrSize = 4096;
 let livereloadClients: ServerResponse[] = [];
 
 if (isDev) {
+  app.get("/", (_req, res) => {
+    const html = fs.readFileSync(indexPath, "utf8");
+    const reloadScript =
+      '<script>new EventSource("/__livereload").onmessage=()=>location.reload();</script>';
+    return res.send(html.replace("</body>", `${reloadScript}</body>`));
+  });
+
   app.get("/__livereload", (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -149,22 +156,13 @@ async function generateQrWithLogo(
     .toBuffer();
 }
 
-app.get("/", (_req, res) => {
-  if (isDev) {
-    const html = fs.readFileSync(indexPath, "utf8");
-    const reloadScript =
-      '<script>new EventSource("/__livereload").onmessage=()=>location.reload();</script>';
-    return res.send(html.replace("</body>", `${reloadScript}</body>`));
-  }
+const router = express.Router();
 
-  res.sendFile(indexPath);
-});
-
-app.get("/test", (_req, res) => {
+router.get("/test", (_req, res) => {
   res.json({ message: "CORS is working!" });
 });
 
-app.get("/qr", async (req, res) => {
+router.get("/qr", async (req, res) => {
   try {
     const text = getQueryParam(req.query.text);
     const color = getQueryParam(req.query.color);
@@ -203,6 +201,9 @@ app.get("/qr", async (req, res) => {
     res.status(500).send("Error generating QR code");
   }
 });
+
+app.use(router);
+app.use("/api", router);
 
 export default app;
 

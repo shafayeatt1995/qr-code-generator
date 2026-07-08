@@ -1,13 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["bun-types"]
+    "declaration": false
   },
-  "include": ["**/*.ts"]
+  "include": ["app.ts", "api/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }
