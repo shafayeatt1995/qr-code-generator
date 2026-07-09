@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QR Code Generator</title>
+    <title>QR Code Generator - Xorin Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -13,9 +19,7 @@
 
       body {
         background-color: #f7f8f9;
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+        font-family: "Urbanist", sans-serif;
         color: #000000;
         font-size: 18px;
       }
@@ -27,7 +31,7 @@
       }
 
       .wrapper {
-        max-width: 500px;
+        max-width: 580px;
         background-color: #fff;
         margin: 40px auto;
         padding: 30px;
@@ -221,6 +225,18 @@
       .toast.error {
         background-color: #d64545;
       }
+
+      .title {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        text-align: center;
+      }
+
+      .mb-5 {
+        margin-bottom: 20px;
+        font-size: 16px;
+      }
     </style>
   </head>
   <body>
@@ -234,7 +250,12 @@
       >
         <img src="/logo.avif" alt="Logo" class="brand-logo" />
       </a>
-      <h2>QR code generator</h2>
+      <h1 class="title">Lifetime Free QR Code Generator</h1>
+      <p class="mb-5">
+        Generate QR codes for your website, social media, and more with Xorin
+        Lab's lifetime free QR code generator. No signup, no ads, no
+        limitations.
+      </p>
       <form action="/api/qr">
         <div class="qr-settings-wrapper">
           <div class="qr-setting">
@@ -256,6 +277,19 @@
               value="#ffffff"
               type="color"
               id="bg"
+            />
+          </div>
+
+          <div class="qr-setting">
+            <label for="size">Size (px)</label>
+            <input
+              name="size"
+              value="1000"
+              type="number"
+              id="size"
+              min="10"
+              max="4096"
+              step="1"
             />
           </div>
         </div>
@@ -342,7 +376,73 @@
       const copyBtn = document.getElementById("copy-btn");
       const downloadBtn = document.getElementById("download-btn");
       const toastContainer = document.getElementById("toast-container");
-      const downloadSize = 1000;
+      const minQrSize = 10;
+      const maxQrSize = 4096;
+      const defaultQrSize = 1000;
+
+      function parseQrSize(value) {
+        const size = Number(value);
+        if (!Number.isFinite(size)) return defaultQrSize;
+        return Math.min(maxQrSize, Math.max(minQrSize, Math.round(size)));
+      }
+
+      function getQrSize() {
+        return parseQrSize(document.getElementById("size").value);
+      }
+
+      function syncSizeInput() {
+        const sizeInput = document.getElementById("size");
+        sizeInput.value = String(getQrSize());
+      }
+
+      function normalizeHexColor(value, fallback) {
+        if (!value) return fallback;
+        const hex = value.startsWith("#") ? value : `#${value}`;
+        return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : fallback;
+      }
+
+      function loadFromPageUrl() {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.toString()) return;
+
+        if (params.has("color")) {
+          document.getElementById("color").value = normalizeHexColor(
+            params.get("color"),
+            "#000000",
+          );
+        }
+
+        if (params.has("bg")) {
+          document.getElementById("bg").value = normalizeHexColor(
+            params.get("bg"),
+            "#ffffff",
+          );
+        }
+
+        if (params.has("text")) {
+          document.getElementById("text").value = params.get("text");
+        }
+
+        if (params.has("size")) {
+          document.getElementById("size").value = String(
+            parseQrSize(params.get("size")),
+          );
+        }
+      }
+
+      function syncPageUrl() {
+        const color = document.getElementById("color").value.substring(1);
+        const bg = document.getElementById("bg").value.substring(1);
+        const text = document.getElementById("text").value;
+        const params = new URLSearchParams({
+          color,
+          bg,
+          text,
+          size: String(getQrSize()),
+        });
+        const nextUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState(null, "", nextUrl);
+      }
 
       function showToast(message, type = "success") {
         const toast = document.createElement("div");
@@ -360,14 +460,14 @@
         }, 2500);
       }
 
-      function buildQrUrl({ size, download = false } = {}) {
+      function buildQrUrl({ download = false, includeSize = true } = {}) {
         const color = document.getElementById("color").value.substring(1);
         const bg = document.getElementById("bg").value.substring(1);
         const text = document.getElementById("text").value;
         const params = new URLSearchParams({ color, bg, text });
 
-        if (size) {
-          params.set("size", String(size));
+        if (includeSize) {
+          params.set("size", String(getQrSize()));
         }
 
         if (download) {
@@ -377,20 +477,32 @@
         return `/api/qr?${params.toString()}`;
       }
 
+      function updateApiUrl() {
+        syncPageUrl();
+        apiUrlPre.innerText = window.location.origin + buildQrUrl();
+      }
+
+      function onSizeChange() {
+        syncSizeInput();
+        updateApiUrl();
+      }
+
       form.addEventListener("submit", function (e) {
         e.preventDefault();
 
-        const url = buildQrUrl();
-        fetch(url)
+        syncSizeInput();
+        const previewUrl = buildQrUrl({ includeSize: false });
+        fetch(previewUrl)
           .then((response) => response.blob())
           .then((blob) => {
             qrImage.src = URL.createObjectURL(blob);
             qrImage.style.display = "block";
             loadingText.style.display = "none";
-            displayQr.querySelector("pre").innerText =
-              window.location.origin + url;
+            updateApiUrl();
           });
       });
+
+      document.getElementById("size").addEventListener("input", onSizeChange);
 
       copyBtn.addEventListener("click", async function () {
         const apiUrl = apiUrlPre.innerText.trim();
@@ -406,7 +518,8 @@
       });
 
       downloadBtn.addEventListener("click", async function () {
-        const url = buildQrUrl({ size: downloadSize, download: true });
+        syncSizeInput();
+        const url = buildQrUrl({ download: true });
 
         try {
           const response = await fetch(url);
@@ -441,6 +554,7 @@
         form.dispatchEvent(new Event("submit"));
       }
 
+      loadFromPageUrl();
       formSubmit();
     </script>
   </body>

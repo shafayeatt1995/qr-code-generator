@@ -7,6 +7,7 @@ import type { ParsedQs } from "qs";
 import qr from "qrcode";
 import sharp from "sharp";
 import cors from "cors";
+import opentype from "opentype.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -24,31 +25,23 @@ function getProjectRoot(): string {
 
 const rootDir = getProjectRoot();
 const indexPath = path.join(rootDir, "public", "index.html");
-const logoPath = path.join(rootDir, "public", "logo.avif");
-const defaultPreviewSize = 800;
-const minQrSize = 100;
+const urbanistBoldPath = path.join(rootDir, "public", "fonts", "Urbanist-Bold.ttf");
+const defaultPreviewSize = 1000;
+const minQrSize = 10;
 const maxQrSize = 4096;
+const centerLabel = "Xorin Lab";
 let livereloadClients: ServerResponse[] = [];
-let cachedLogo: Buffer | null = null;
+let cachedUrbanistFont: opentype.Font | null = null;
 
-async function getLogoImage(): Promise<Buffer> {
-  if (cachedLogo) return cachedLogo;
+function getUrbanistFont(): opentype.Font {
+  if (cachedUrbanistFont) return cachedUrbanistFont;
 
-  if (fs.existsSync(logoPath)) {
-    cachedLogo = fs.readFileSync(logoPath);
-    return cachedLogo;
+  if (!fs.existsSync(urbanistBoldPath)) {
+    throw new Error(`Urbanist font not found at ${urbanistBoldPath}`);
   }
 
-  if (process.env.VERCEL_URL) {
-    const response = await fetch(`https://${process.env.VERCEL_URL}/logo.avif`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch logo: ${response.status}`);
-    }
-    cachedLogo = Buffer.from(await response.arrayBuffer());
-    return cachedLogo;
-  }
-
-  throw new Error(`Logo not found at ${logoPath}`);
+  cachedUrbanistFont = opentype.parse(fs.readFileSync(urbanistBoldPath).buffer);
+  return cachedUrbanistFont;
 }
 
 app.get("/", (_req, res) => {
@@ -97,52 +90,54 @@ function normalizeHexColor(color: string): string {
   return color.startsWith("#") ? color : `#${color}`;
 }
 
-function hexToRgb(hex: string) {
-  const value = hex.replace("#", "");
-  return {
-    r: parseInt(value.slice(0, 2), 16),
-    g: parseInt(value.slice(2, 4), 16),
-    b: parseInt(value.slice(4, 6), 16),
-  };
-}
-
-async function logoForPlate(
-  plateColor: { r: number; g: number; b: number },
-  logoSize: number,
+async function textPlate(
+  label: string,
+  darkColor: string,
+  lightColor: string,
+  plateSize: number,
+  fontSize: number,
 ): Promise<Buffer> {
-  const logoImage = await getLogoImage();
-  const { data, info } = await sharp(logoImage)
-    .resize(logoSize, logoSize, {
-      fit: "contain",
-      background: { ...plateColor, alpha: 1 },
-    })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  const dark = normalizeHexColor(darkColor);
+  const light = normalizeHexColor(lightColor);
+  const font = getUrbanistFont();
+  const words = label.split(" ");
+  const lineHeight = fontSize * 1.15;
+  const cornerRadius = Math.round(plateSize * 0.24);
 
-  const threshold = 235;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
+  const firstWordBBox = font.getPath(words[0], 0, 0, fontSize).getBoundingBox();
+  const lastWordBBox = font
+    .getPath(words[words.length - 1], 0, 0, fontSize)
+    .getBoundingBox();
+  const blockHeight =
+    (words.length - 1) * lineHeight + (lastWordBBox.y2 - firstWordBBox.y1);
+  const minTop = Math.max(4, Math.round(plateSize * 0.06));
+  let firstBaseline = (plateSize - blockHeight) / 2 - firstWordBBox.y1;
 
-    if (r >= threshold && g >= threshold && b >= threshold) {
-      data[i] = plateColor.r;
-      data[i + 1] = plateColor.g;
-      data[i + 2] = plateColor.b;
-      data[i + 3] = 255;
-    }
+  if (firstBaseline + firstWordBBox.y1 < minTop) {
+    firstBaseline = minTop - firstWordBBox.y1;
   }
 
-  return sharp(data, {
-    raw: {
-      width: info.width,
-      height: info.height,
-      channels: info.channels,
-    },
-  })
-    .png()
-    .toBuffer();
+  const wordPaths = words.map((word, index) => {
+    const y = firstBaseline + index * lineHeight;
+    const path = font.getPath(word, 0, y, fontSize);
+    const bbox = path.getBoundingBox();
+    const x = (plateSize - (bbox.x2 - bbox.x1)) / 2 - bbox.x1;
+    return font.getPath(word, x, y, fontSize).toPathData(2);
+  });
+
+  const bgSvg = `<svg width="${plateSize}" height="${plateSize}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${plateSize}" height="${plateSize}" fill="${light}" rx="${cornerRadius}" ry="${cornerRadius}"/>
+  </svg>`;
+  const bg = await sharp(Buffer.from(bgSvg)).png().toBuffer();
+
+  const textLayers = await Promise.all(
+    wordPaths.map(async (pathData) => {
+      const textSvg = `<?xml version="1.0" encoding="UTF-8"?><svg width="${plateSize}" height="${plateSize}" overflow="visible" xmlns="http://www.w3.org/2000/svg"><path d="${pathData}" fill="${dark}"/></svg>`;
+      return { input: await sharp(Buffer.from(textSvg)).png().toBuffer() };
+    }),
+  );
+
+  return sharp(bg).composite(textLayers).png().toBuffer();
 }
 
 function parseQrSize(value: string | undefined, fallback: number): number {
@@ -151,7 +146,7 @@ function parseQrSize(value: string | undefined, fallback: number): number {
   return Math.min(maxQrSize, Math.max(minQrSize, Math.round(size)));
 }
 
-async function generateQrWithLogo(
+async function generateQrWithLabel(
   text: string,
   darkColor: string,
   lightColor: string,
@@ -167,26 +162,24 @@ async function generateQrWithLogo(
     },
   });
 
-  const logoSize = Math.round(size * 0.2);
-  const padding = 12;
-  const plateColor = hexToRgb(normalizeHexColor(lightColor));
+  const labelSize = Math.round(size * 0.12);
+  const padding = 6;
+  const plateSize = labelSize + padding * 2;
+  const fontPlateSize = Math.round(size * 0.16) + 16;
+  const fontSize = Math.round(
+    fontPlateSize * (centerLabel.split(" ").length > 1 ? 0.22 : 0.26),
+  );
 
-  const logo = await logoForPlate(plateColor, logoSize);
-
-  const logoPlate = await sharp({
-    create: {
-      width: logoSize + padding * 2,
-      height: logoSize + padding * 2,
-      channels: 4,
-      background: { ...plateColor, alpha: 1 },
-    },
-  })
-    .composite([{ input: logo, gravity: "center" }])
-    .png()
-    .toBuffer();
+  const labelPlate = await textPlate(
+    centerLabel,
+    darkColor,
+    lightColor,
+    plateSize,
+    fontSize,
+  );
 
   return sharp(qrBuffer)
-    .composite([{ input: logoPlate, gravity: "center" }])
+    .composite([{ input: labelPlate, gravity: "center" }])
     .png()
     .toBuffer();
 }
@@ -216,7 +209,7 @@ router.get("/qr", async (req, res) => {
     const defaultBgColor = "#FFFFFF";
     const darkColor = color || defaultColor;
     const lightColor = bg || defaultBgColor;
-    const qrImage = await generateQrWithLogo(
+    const qrImage = await generateQrWithLabel(
       text,
       darkColor,
       lightColor,
