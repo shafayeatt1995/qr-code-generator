@@ -10,7 +10,7 @@ import cors from "cors";
 import opentype from "opentype.js";
 
 const app = express();
-const port = Number(process.env.PORT) || 3000;
+const defaultPort = Number(process.env.PORT) || 3000;
 const isDev = process.env.NODE_ENV === "development";
 
 function getProjectRoot(): string {
@@ -146,13 +146,13 @@ function parseQrSize(value: string | undefined, fallback: number): number {
   return Math.min(maxQrSize, Math.max(minQrSize, Math.round(size)));
 }
 
-async function generateQrWithLabel(
+async function generateQrPlain(
   text: string,
   darkColor: string,
   lightColor: string,
   size: number,
 ): Promise<Buffer> {
-  const qrBuffer = await qr.toBuffer(text, {
+  return qr.toBuffer(text, {
     margin: 1,
     width: size,
     errorCorrectionLevel: "H",
@@ -161,6 +161,15 @@ async function generateQrWithLabel(
       light: normalizeHexColor(lightColor),
     },
   });
+}
+
+async function generateQrWithLabel(
+  text: string,
+  darkColor: string,
+  lightColor: string,
+  size: number,
+): Promise<Buffer> {
+  const qrBuffer = await generateQrPlain(text, darkColor, lightColor, size);
 
   const labelSize = Math.round(size * 0.12);
   const padding = 6;
@@ -200,26 +209,31 @@ router.get("/qr", async (req, res) => {
       defaultPreviewSize,
     );
     const download = getQueryParam(req.query.download) === "1";
+    const withLogo = getQueryParam(req.query.logo) === "1";
+    const accessCode = getQueryParam(req.query.access_code);
 
     if (!text) {
       return res.status(400).send("Missing required parameters");
+    }
+
+    if (download && !withLogo && accessCode !== "anik0011") {
+      return res.status(403).send("Invalid or missing access code");
     }
 
     const defaultColor = "#000000";
     const defaultBgColor = "#FFFFFF";
     const darkColor = color || defaultColor;
     const lightColor = bg || defaultBgColor;
-    const qrImage = await generateQrWithLabel(
-      text,
-      darkColor,
-      lightColor,
-      size,
-    );
+    const qrImage = withLogo
+      ? await generateQrWithLabel(text, darkColor, lightColor, size)
+      : await generateQrPlain(text, darkColor, lightColor, size);
+
+    const filename = withLogo ? "Xorin Lab QR Code.png" : "QR Code.png";
 
     res.writeHead(200, {
       "Content-Type": "image/png",
       "Content-Disposition": download
-        ? 'attachment; filename="Xorin Lab QR Code.png"'
+        ? `attachment; filename="${filename}"`
         : "inline; filename=qr-code.png",
     });
 
@@ -235,19 +249,34 @@ app.use("/api", router);
 
 export default app;
 
-if (!process.env.VERCEL && import.meta.main) {
+function listenOnAvailablePort(startPort: number, attempt = 0): void {
+  const maxAttempts = 100;
+  const port = startPort + attempt;
   const server = app.listen(port, () => {
+    if (port !== startPort) {
+      console.log(`Port ${startPort} is in use, using port ${port} instead`);
+    }
     console.log(`Server is running at http://localhost:${port}`);
   });
 
   server.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
+      server.close();
+      if (attempt + 1 < maxAttempts) {
+        listenOnAvailablePort(startPort, attempt + 1);
+        return;
+      }
+
       console.error(
-        `Port ${port} is already in use. Stop the other process or run with PORT=3001 bun run dev`,
+        `No available port found between ${startPort} and ${port}`,
       );
       process.exit(1);
     }
 
     throw error;
   });
+}
+
+if (!process.env.VERCEL && import.meta.main) {
+  listenOnAvailablePort(defaultPort);
 }
